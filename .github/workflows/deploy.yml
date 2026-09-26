@@ -12,14 +12,23 @@ jobs:
       - name: Get latest code
         uses: actions/checkout@v4
 
-      - name: Upload files via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          server-dir: ./
-          exclude: |
-            **/.git*
-            **/.git*/**
-            .github/**
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # SFTP over SSH uses one connection on the SSH port, so it avoids the
+      # FTP passive data ports that the host firewall blocks.
+      - name: Upload files via SFTP
+        env:
+          LFTP_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR || 'public_html' }}
+        run: |
+          lftp --env-password -u "$SSH_USERNAME" -p "$SSH_PORT" "sftp://$SSH_HOST" -e "
+            set sftp:auto-confirm yes;
+            set net:timeout 20;
+            set net:max-retries 3;
+            mirror --reverse --verbose --exclude-glob .git/ --exclude-glob .github/ --exclude-glob .git* ./ $REMOTE_DIR/;
+            bye
+          "
